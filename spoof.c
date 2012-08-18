@@ -1,5 +1,5 @@
 /* spoof.c -- modify a message to have a desired CRC
-  version 1.1, August 16th, 2012
+  version 1.2, August 18th, 2012
 
   Copyright (C) 2012 Mark Adler
 
@@ -27,12 +27,19 @@
 /* Version History:
    1.0    12 Aug 2012  First version
    1.1    16 Aug 2012  Allow underconstrained set to avoid singular matrices
+                       Change order of input file items (incompatible with 1.0)
+                       Avoid non-portable shifts equal to word length
+                       Fix bug in crc_byte() for CRCs less than eight bits
+                       Unroll crc_byte() loops
+   1.2    18 Aug 2012  Add comments on probability of singular matrices
+                       Improve efficiency, simplicity of crc_byte()
+                       Use WORDBITS in argument checking
  */
 
 /*
    Given a k-bit CRC polynomial and n >= k bit locations in a message of
-   specified length, determine what to set those bit locations to in order to
-   get a specified CRC value.  Not all such sets of bit locations have a
+   specified length, determine which of those bit locations to change in order
+   to get a specified CRC value.  Not all such sets of bit locations have a
    solution, but providing n > k candidate bit locations to change reduces the
    probability of no solution.
 
@@ -120,6 +127,15 @@
 
    The execution time of spoof is proportional to log(length).  So spoof can be
    used for extremely long sequences and still return a solution very rapidly.
+
+   It is important to offer more than a minimal set of bit locations for spoof
+   to modify. For a k-bit CRC, the probability of no solution for a minimal set
+   of k randomly selected locations is 71%.  However that probability drops
+   rapidly as more locations are added.  It is 42% for k + 1 random locations,
+   23% for k + 2, 12% for k + 3, and it continues to drop by about a factor of
+   two for each additional location.  For k + 10 randomly selected locations,
+   the probability of no solution is 0.1%.  Interestingly, these probabilities
+   are independent of the length of the CRC, for k from 8 to 64.
  */
 
 /*
@@ -266,52 +282,38 @@ local inline void *alloc(void *space, size_t size)
 local word crc_byte(word crc, unsigned val, model_t model)
 {
     if (model.ref) {
-        if (model.dim < 8) {
-            crc = (crc ^ val) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = (crc ^ val >> 1) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = (crc ^ val >> 2) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = (crc ^ val >> 3) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = (crc ^ val >> 4) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = (crc ^ val >> 5) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = (crc ^ val >> 6) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = (crc ^ val >> 7) & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        }
-        else {
-            crc ^= val & 0xff;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-            crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        }
+        crc ^= val & 0xff;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
     }
     else {
-        word mask = (word)1 << model.dim - 1;
+        word mask;
+
         if (model.dim < 8) {
-            val <<= model.dim - 1;
-            crc = (crc ^ val >> 7) & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = (crc ^ val >> 6) & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = (crc ^ val >> 5) & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = (crc ^ val >> 4) & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = (crc ^ val >> 3) & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = (crc ^ val >> 2) & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = (crc ^ val >> 1) & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = (crc ^ val) & mask ? crc << 1 ^ model.poly : crc << 1;
+            mask = 0x80;
+            crc <<= 8 - model.dim;
+            crc ^= val;
         }
         else {
+            mask = (word)1 << model.dim - 1;
             crc ^= (word)val << model.dim - 8;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-            crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
         }
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        if (model.dim < 8)
+            crc >>= 8 - model.dim;
         crc &= ONES(model.dim);
     }
     return crc;
@@ -610,11 +612,9 @@ int main(void)
     char *just;                 /* string of spaces for justification */
 
     /* read and validate the input file */
-    for (k = 0, crc = 1; crc; k++, crc <<= 1)
-        ;
     ret = fscanf(in, " %hd %hd %" WORDFMT,   /* crc description */
                  &model.dim, &model.ref, &model.poly);
-    if (ret == 3 && model.dim > k)
+    if (ret == 3 && model.dim > WORDBITS)
         fail("CRC too long for crc integer type spoof was compiled with");
     if (ret < 3 || model.dim < 1 || model.ref < 0 || model.ref > 1 ||
                    model.poly > ONES(model.dim))
