@@ -1,5 +1,5 @@
 /* spoof.c -- modify a message to have a desired CRC
-  version 1.2, August 18th, 2012
+  version 1.3, August 23rd, 2012
 
   Copyright (C) 2012 Mark Adler
 
@@ -34,23 +34,27 @@
    1.2    18 Aug 2012  Add comments on probability of singular matrices
                        Improve efficiency, simplicity of crc_byte()
                        Use WORDBITS in argument checking
+   1.3    23 Aug 2012  Simplify ONES() macro
+                       Add assertion to assure loci sorted for crc_sparse()
+                       Use _t on all typedef'ed types for consistency
  */
 
 /*
    Given a k-bit CRC polynomial and n >= k bit locations in a message of
    specified length, determine which of those bit locations to change in order
    to get a specified CRC value.  Not all such sets of bit locations have a
-   solution, but providing n > k candidate bit locations to change reduces the
+   solution, but offering n > k candidate bit locations to change reduces the
    probability of no solution.
 
-   spoof is used by taking a sequence and its CRC value, selecting n bit
-   locations in the sequence to potentially change, and exclusive-oring the CRC
-   value with the desired CRC.  The bit locations and that difference between
-   the CRCs is provided to spoof.  Then spoof delivers a subset of the bit
-   locations that are to be inverted (0 -> 1 or 1 -> 0).  Upon inverting, that
-   sequence now has the desired CRC.  If spoof reports that that set of bit
-   locations has no solution, then a different or larger set of bit locations
-   can be tried by the user.
+   spoof is used by taking a sequence and its CRC value, exclusive-oring that
+   CRC value with the desired CRC value, and selecting n bit locations in the
+   sequence to potentially change.  The bit locations and that exclusive-or of
+   the CRCs is provided to spoof.  (The sequence itself is not needed by
+   spoof.)  spoof then delivers a subset of the bit locations that are to be
+   inverted, i.e. 0 goes to 1 or 1 goes to 0.  Upon inverting, that sequence
+   now has the desired CRC.  If spoof reports that that set of bit locations
+   has no solution, then spoof can be re-run with a different or larger set of
+   bit locations.
 
    The input is read from stdin.  The format of the input is:
 
@@ -158,23 +162,23 @@
 
    There are many answers for B.  In order to narrow those down, we would like
    to make only a small number of changes to A.  Let D = A ^ B and r = p ^ q.
-   We have from the above that r = crc(D).  We would like for D to be mostly
-   zeros, with just a small number of ones, which represent the number of bit
-   locations where A and B differ.  r is simply calculated from p and q, which
-   are known.  We will pick a set of bit locations in D that we will allow
-   spoof to modify.  These bit locations can be anywhere, such as all grouped
-   at the end or beginning, randomly scattered in the sequence, the low bits of
-   selected insignificant decimal digits, or perhaps other choices where the
-   changed bits are not consequential to the transmitted message.  spoof can
-   also be used to attempt to correct a set of known erasure locations using
-   the CRC.
+   We have from the additive property of CRCs that r = crc(D).  We would like
+   for D to be mostly zeros, with just a small number of ones, which represent
+   the number of bit locations where A and B differ.  r is simply calculated
+   from p and q, which are known.  We will pick a set of bit locations in D
+   that we will allow spoof to set to one.  These bit locations can be
+   anywhere, such as all grouped at the end or beginning, randomly scattered in
+   the sequence, the low bits of selected insignificant decimal digits, or
+   perhaps other choices where the changed bits are not consequential to the
+   transmitted message.  spoof can also be used to attempt to correct a set of
+   known erasure locations using the CRC.
 
    We will place in each candidate bit location in D a variable, named x_0,
    x_1, etc., with all of the other bits in D set to zero.  The equation: r =
    crc(D) for a k-bit CRC can be seen as k binary equations in the x_i, over
    GF(2).  We will define n such locations x_i, where n >= k, since then we
-   have at k equations with at least k unknowns.  Out of the n x_i, we will
-   look for a subset k x_i that results in a solution.
+   have k equations with at least k unknowns.  Out of the n x_i, we will look
+   for a subset k x_i that results in a solution.
 
    Given the length of the sequence, r, and the locations of the x_i, spoof
    will determine the values of the x_i, from which D can be constructed.  Then
@@ -189,11 +193,13 @@
    equal to r.  To solve, we construct the matrix M that consists of the
    columns c_i.  If x is the vector x_i, then we have M x = r.  We take the
    inverse of M, which if it exists, gives the solution x = Inverse(M) r.  For
-   the x_i with the value one, the corresponding locations in A need to be
-   inverted to get a sequence B that has the CRC q.  If all square subset of M
-   are singular, there is no solution for the given set of bit locations
-   (regardless of r).  The user can then try a different or larger set of bit
-   locations.
+   n > k, M is rectangular.  In that case, a subset of k columns are found that
+   is a non-singular square k by k matrix.  That selects a subset of the x_i to
+   potentially set to one.  For the x_i with the value one, the corresponding
+   locations in A need to be inverted to get a sequence B that has the CRC q.
+   If all square subsets of the columns of M are singular, then there is no
+   solution for the given set of bit locations (regardless of r).  The user can
+   then try a different or larger set of bit locations.
 
    The described application of spoof works as well for CRC's calculated with
    pre and/or post-processing, where the initial CRC value may be non-zero, and
@@ -230,32 +236,6 @@
 
 #define local static
 
-/* Types to use for CRC's and sequence lengths and offsets.  In general these
-   should be the largest integer types available to maximize the problems that
-   can be solved.  word could be made a smaller type if speed is paramount and
-   the size of the word type is known to cover the CRC polynomials that will be
-   presented.
- */
-typedef unsigned long long word;    /* unsigned type for crc values */
-typedef unsigned long long range;   /* unsigned type for sequence offsets */
-#define WORDFMT "llx"               /* printf / scanf format for word (hex) */
-#define RANGEFMT "llu"              /* printf / scanf format for range */
-#define WORDBITS ((int)sizeof(word)<<3)
-#define ONES(n) ((n) >= WORDBITS ? (word)0 - 1 : ((word)1 << (n)) - 1)
-
-/* CRC description (with no pre or post processing) */
-typedef struct {
-    short dim;          /* number of bits in CRC */
-    short ref;          /* if true, bit-reflected input and output */
-    word poly;          /* polynomial representation (ordered per ref) */
-} model_t;
-
-/* Location of a bit that can be modified to get the desired CRC. */
-struct locus {
-    range off;          /* byte offset in sequence */
-    short pos;          /* position in byte (0..7) */
-};
-
 /* Issue error message (all error messages go through here). */
 local inline void warn(const char *why)
 {
@@ -269,7 +249,7 @@ local inline void fail(const char *why)
     exit(1);
 }
 
-/* Assured memory allocation. */
+/* Assured memory allocation or reallocation. */
 local inline void *alloc(void *space, size_t size)
 {
     space = realloc(space, size);
@@ -278,22 +258,48 @@ local inline void *alloc(void *space, size_t size)
     return space;
 }
 
+/* Types to use for CRC's and sequence lengths and offsets.  In general these
+   should be the largest integer types available to maximize the problems that
+   can be solved.  word_t could be made a smaller type if speed is paramount
+   and the size of the word_t type is known to cover the CRC polynomials that
+   will be presented.
+ */
+typedef unsigned long long word_t;  /* unsigned type for crc values */
+typedef unsigned long long range_t; /* unsigned type for sequence offsets */
+#define WORDFMT "llx"               /* printf, scanf format for word_t (hex) */
+#define RANGEFMT "llu"              /* printf, scanf format for range_t */
+#define WORDBITS ((int)sizeof(word_t)<<3)
+#define ONES(n) (((word_t)0 - 1) >> (WORDBITS - (n)))
+
+/* CRC description (with no pre or post processing) */
+typedef struct {
+    short dim;          /* number of bits in CRC */
+    short ref;          /* if true, bit-reflected input and output */
+    word_t poly;        /* polynomial representation (ordered per ref) */
+} model_t;
+
+/* Location of a bit that can be modified to get the desired CRC. */
+struct locus {
+    range_t off;        /* byte offset in sequence */
+    short pos;          /* position in byte (0..7) */
+};
+
 /* Run the low eight bits in val through a crc using model. */
-local word crc_byte(word crc, unsigned val, model_t model)
+local inline word_t crc_byte(word_t crc, unsigned val, model_t model)
 {
     if (model.ref) {
         crc ^= val & 0xff;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
-        crc = crc & 1 ? crc >> 1 ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
     }
     else {
-        word mask;
+        word_t mask;
 
         if (model.dim < 8) {
             mask = 0x80;
@@ -301,17 +307,17 @@ local word crc_byte(word crc, unsigned val, model_t model)
             crc ^= val;
         }
         else {
-            mask = (word)1 << model.dim - 1;
-            crc ^= (word)val << model.dim - 8;
+            mask = (word_t)1 << model.dim - 1;
+            crc ^= (word_t)val << model.dim - 8;
         }
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
-        crc = crc & mask ? crc << 1 ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
         if (model.dim < 8)
             crc >>= 8 - model.dim;
         crc &= ONES(model.dim);
@@ -320,13 +326,13 @@ local word crc_byte(word crc, unsigned val, model_t model)
 }
 
 /* Multiply the GF(2) vector vec by the GF(2) matrix mat, returning the
-   resulting vector.  The vector is stored as bits in a word, and the matrix
+   resulting vector.  The vector is stored as bits in a word_t, and the matrix
    is similarly stored as words, where the number of words is at least enough
    to cover the position of the most significant 1 bit in the vector (so a
    dimension parameter is not needed). */
-local inline word gf2_matrix_times(const word *mat, word vec)
+local inline word_t gf2_matrix_times(const word_t *mat, word_t vec)
 {
-    word sum;
+    word_t sum;
 
     sum = 0;
     while (vec) {
@@ -341,7 +347,7 @@ local inline word gf2_matrix_times(const word *mat, word vec)
 /* Multiply the matrix mat by itself, returning the result in square. dim is
    the dimension of the matrices, i.e., the number of bits in each word (rows),
    and the number of words (columns). */
-local void gf2_matrix_square(word *square, const word *mat, int dim)
+local void gf2_matrix_square(word_t *square, const word_t *mat, int dim)
 {
     int n;
 
@@ -352,13 +358,15 @@ local void gf2_matrix_square(word *square, const word *mat, int dim)
 /* Return a matrix that when multiplied by the starting crc is equivalent to
    running 2^k zero bytes through the crc calculation.  The matrices are
    retained in static and allocated storage, so that they are only calculated
-   once.  Call crc_zeros_operator(-1, model) to free the allocated storage and
-   clear the table.  This routine is not thread-safe. */
-local const word *crc_zeros_operator(int k, model_t model)
+   once.  If a new model is presented, then the previous table is cleared to
+   start over.  Call crc_zeros_operator(-1, model) to free the allocated
+   storage and clear the table.  This routine is not thread safe, and so
+   should only be called from the main thread. */
+local const word_t *crc_zeros_operator(int k, model_t model)
 {
     static int have = 0;
     static model_t first;
-    static word *power[sizeof(range) << 3];
+    static word_t *power[sizeof(range_t) << 3];
 
     /* if requested or required, release and clear the operator table */
     if (k < 0 || model.dim != first.dim || model.ref != first.ref ||
@@ -374,12 +382,12 @@ local const word *crc_zeros_operator(int k, model_t model)
         /* first time in: create first two operators (1 and 2 zero bytes) */
         if (have == 0) {
             int n;
-            word row;
+            word_t row;
 
             /* check and set state, allocate space for first two operators */
             first = model;
-            power[0] = alloc(NULL, model.dim * sizeof(word));
-            power[1] = alloc(NULL, model.dim * sizeof(word));
+            power[0] = alloc(NULL, model.dim * sizeof(word_t));
+            power[1] = alloc(NULL, model.dim * sizeof(word_t));
 
             /* generate operator for one zero bit using crc polynomial */
             if (model.ref) {
@@ -406,7 +414,7 @@ local const word *crc_zeros_operator(int k, model_t model)
         }
 
         /* square the highest operator so far and put in allocated space */
-        power[have] = alloc(NULL, model.dim * sizeof(word));
+        power[have] = alloc(NULL, model.dim * sizeof(word_t));
         gf2_matrix_square(power[have], power[have - 1], model.dim);
         have++;
     }
@@ -418,7 +426,7 @@ local const word *crc_zeros_operator(int k, model_t model)
 /* Efficiently apply len zero bytes to crc, returning the resulting crc.  The
    execution time of this routine is proportional to log(len).  model is the
    crc description. */
-local word crc_zeros(word crc, range len, model_t model)
+local word_t crc_zeros(word_t crc, range_t len, model_t model)
 {
     int n;
 
@@ -431,29 +439,34 @@ local word crc_zeros(word crc, range len, model_t model)
 }
 
 /* Compute the crc of a sparse sequence with 1's at loci[0..num-1] (assumed to
-   be sorted by offset). */
-local word crc_sparse(const struct locus *loci, int locs, range len,
-                      model_t model)
+   be sorted by offset in ascending order). */
+local word_t crc_sparse(const struct locus *loci, int locs, range_t len,
+                        model_t model)
 {
     int k;              /* index of loci */
     unsigned val = 0;   /* sequence byte consisting of one or more ones */
-    word crc = 0;       /* computed crc */
-    range at = 0;       /* crc calculation at this offset so far */
+    word_t crc = 0;     /* computed crc */
+    range_t at = 0;     /* crc calculation is at this offset so far */
 
-    /* go through each location, deferring the use of val in case a byte has
-       more than one location in it */
+    /* go through each location, deferring the use of val in case a byte will
+       have more than one bit set to one */
     for (k = 0; k < locs; k++) {
-        /* if at new location, do crc through val if val has ones */
+        /* assure that loci[] is sorted by offset */
+        assert(loci[k].off >= at);
+
+        /* if at a new offset, do crc of val if val has ones */
         if (val && loci[k].off != at) {
             crc = crc_byte(crc, val, model);
             at++;
             val = 0;
         }
+
         /* run zeros through crc up to current location */
         crc = crc_zeros(crc, loci[k].off - at, model);
         at = loci[k].off;
         val |= 1 << loci[k].pos;            /* add a one bit to val */
     }
+
     /* take care of leftover bits in val, if any */
     if (val) {
         crc = crc_byte(crc, val, model);
@@ -467,17 +480,25 @@ local word crc_sparse(const struct locus *loci, int locs, range len,
 /* Solve M x = c for x, return 0 on success, 1 on failure (singular).  This
    works for rectangluar M as well (cols > rows), where a subset of the x
    values are selected that result in a non-singular square M' over that
-   subset.  rows is limited to the number of bits in the word type.  cols is
-   not limited (except by stack space). */
-local int gf2_matrix_solve(word *x, const word *M, word c, int rows, int cols)
+   subset.  rows is limited to the number of bits in the word_t type.  cols is
+   not limited (except by stack space).  M is an array of cols words, where
+   each word is a column, and the rows are bits in the word starting with the
+   least significant bit.  c is a word with rows bits stored in the same way.
+   x[] is one or more words with cols bits, where the first bit is the least
+   significant bin in the first word of x[].  When the bits in the first word
+   run out, the next bit is in the least significant position of the next word
+   in x[].  The result is returned in x[], which needs enough elements to store
+   cols bits. */
+local int gf2_matrix_solve(word_t *x, const word_t *M, word_t c, int rows,
+                           int cols)
 {
     int n = (cols + WORDBITS - 1) / WORDBITS;   /* words to hold cols bits */
     int k;              /* index through columns */
     int j;              /* index through rows */
     int i;              /* index through n words holding cols bits */
-    word pos;           /* word with one bit set for current row or column */
-    word a[cols];       /* starting matrix, evolving to identity matrix */
-    word inv[cols][n];  /* identity matrix, evolving to inverse matrix */
+    word_t pos;         /* word with one bit set for current row or column */
+    word_t a[cols];     /* starting matrix, evolving to identity matrix */
+    word_t inv[cols][n];    /* identity matrix, evolving to inverse matrix */
 
     /* copy mat to local storage and create adjoining identity matrix */
     for (k = 0, j = 0, pos = 1; k < cols; k++, pos <<= 1) {
@@ -490,15 +511,16 @@ local int gf2_matrix_solve(word *x, const word *M, word c, int rows, int cols)
             inv[k][i] = i == j ? pos : 0;
     }
 
-    /* make a[] the identity matrix using column swaps and column subtractions
-       (exclusive-or), and perform the same operations on inv[] -- then inv[]
-       will be the inverse */
+    /* make M the identity matrix using column swaps and column subtractions
+       (exclusive-or), and perform the same operations on inv -- then the first
+       cols cols of inv will be the inverse of the selected subset of columns
+       of M */
     for (j = 0, pos = 1; j < rows; j++, pos <<= 1) {
         /* find a subsequent row where column j is 1, make that row j with a
            swap if necessary -- if there isn't any such row, then there is no
            non-singular subset of M, in which case return an error */
         if ((a[j] & pos) == 0) {
-            word tmp;
+            word_t tmp;
 
             for (k = j + 1; k < cols; k++)
                 if (a[k] & pos)
@@ -519,7 +541,7 @@ local int gf2_matrix_solve(word *x, const word *M, word c, int rows, int cols)
             }
     }
 
-    /* Multiply inverse by c to get result x */
+    /* multiply inverse by c to get result x */
     assert(c <= ONES(rows));
     for (i = 0; i < n; i++)
         x[i] = 0;
@@ -535,14 +557,14 @@ local int gf2_matrix_solve(word *x, const word *M, word c, int rows, int cols)
    locations to invert, or -1 if there is no solution.  The locations to invert
    are moved to the beginning of loci.  If there is no solution, loci is
    not modified. */
-local int crc_solve(struct locus *loci, int locs, range len, word want,
+local int crc_solve(struct locus *loci, int locs, range_t len, word_t want,
                     model_t model)
 {
     int n, k, i;
-    word p, sol[(locs + WORDBITS - 1) / WORDBITS];
-    word mat[locs];
+    word_t p, sol[(locs + WORDBITS - 1) / WORDBITS];
+    word_t mat[locs];
 
-    /* protect against improper input causing array overruns */
+    /* protect against improper input that could cause array overruns */
     assert(locs >= model.dim);
     assert(want <= ONES(model.dim));
 
@@ -563,10 +585,8 @@ local int crc_solve(struct locus *loci, int locs, range len, word want,
             p = 1;
             i++;
         }
-        if (sol[i] & p) {
-            loci[n] = loci[k];
-            n++;
-        }
+        if (sol[i] & p)
+            loci[n++] = loci[k];
     }
     return n;
 }
@@ -582,7 +602,7 @@ local int locus_order(const void *a, const void *b)
 }
 
 /* Return the number of decimal digits in the unsigned number n. */
-local inline int decimal_digits(range n)
+local inline int decimal_digits(range_t n)
 {
     int i;
 
@@ -594,18 +614,20 @@ local inline int decimal_digits(range n)
     return i;
 }
 
+#ifndef NOMAIN  /* for testing */
+
 /* Read sequence length, bit positions, and desired crc difference from stdin.
    Compute and display the solution, which is a subset of the provided bit
    positions to invert in the sequence. */
 int main(void)
 {
     int k;                      /* counter for locations, bits */
-    word crc;                   /* calculated crc to check solution */
+    word_t crc;                 /* calculated crc to check solution */
     int ret;                    /* general function return value */
     FILE *in = stdin;           /* input file */
     model_t model;              /* CRC model */
-    word want;                  /* desired crc */
-    range len;                  /* sequence length */
+    word_t want;                /* desired crc */
+    range_t len;                /* sequence length */
     struct locus *loci;         /* bit locations */
     int locs;                   /* number of bit locations to look at */
     int flips;                  /* number of bit locations to invert */
@@ -619,13 +641,13 @@ int main(void)
     if (ret < 3 || model.dim < 1 || model.ref < 0 || model.ref > 1 ||
                    model.poly > ONES(model.dim))
         fail("invalid CRC description");
-    if ((model.poly & ((word)1 << (model.ref ? model.dim - 1 : 0))) == 0)
+    if ((model.poly & ((word_t)1 << (model.ref ? model.dim - 1 : 0))) == 0)
         fail("invalid polynomial (you may need to reverse the bits)");
     ret = fscanf(in, " %" WORDFMT, &want);      /* desired crc difference */
     if (ret < 1 || want > ONES(model.dim))
         fail("invalid target CRC");
     ret = fscanf(in, " %" RANGEFMT, &len);      /* length of sequence */
-    if (ret < 1 || len < (range)((model.dim + 7) >> 3))
+    if (ret < 1 || len < (range_t)((model.dim + 7) >> 3))
         fail("invalid sequence length (must be at least length of CRC)");
     k = model.dim << 1;
     loci = alloc(NULL, k * sizeof(struct locus));
@@ -684,3 +706,5 @@ int main(void)
     free(loci);
     return 0;
 }
+
+#endif
