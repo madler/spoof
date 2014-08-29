@@ -1,5 +1,5 @@
 /* spoof.c -- modify a message to have a desired CRC
-  version 1.3, August 23rd, 2012
+  version 1.4, August 29th, 2014
 
   Copyright (C) 2012 Mark Adler
 
@@ -37,6 +37,7 @@
    1.3    23 Aug 2012  Simplify ONES() macro
                        Add assertion to assure loci sorted for crc_sparse()
                        Use _t on all typedef'ed types for consistency
+   1.4    29 Aug 2014  Add parentheses to avoid precedence ambiguities
  */
 
 /*
@@ -307,8 +308,8 @@ local inline word_t crc_byte(word_t crc, unsigned val, model_t model)
             crc ^= val;
         }
         else {
-            mask = (word_t)1 << model.dim - 1;
-            crc ^= (word_t)val << model.dim - 8;
+            mask = (word_t)1 << (model.dim - 1);
+            crc ^= (word_t)val << (model.dim - 8);
         }
         crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
         crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
