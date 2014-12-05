@@ -1,7 +1,7 @@
 /* spoof.c -- modify a message to have a desired CRC
-  version 1.4, August 29th, 2014
+  version 1.5, December 5th, 2014
 
-  Copyright (C) 2012 Mark Adler
+  Copyright (C) 2012, 2014 Mark Adler
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -38,6 +38,10 @@
                        Add assertion to assure loci sorted for crc_sparse()
                        Use _t on all typedef'ed types for consistency
    1.4    29 Aug 2014  Add parentheses to avoid precedence ambiguities
+   1.5     5 Dec 2014  Allow comments and blank lines in the input file
+                       Allow multiple bit locations per offset in input
+                       Have crc and length be on same line in input
+                       Simplify justification of output header
  */
 
 /*
@@ -60,8 +64,7 @@
    The input is read from stdin.  The format of the input is:
 
      dimension reflect polynomial
-     crc
-     length
+     crc length
      offset_1 position_1
      offset_2 position_2
      ...
@@ -86,10 +89,14 @@
    the start of the sequence, in decimal, where zero is the first byte in the
    sequence, and 'position' which is the location of the bit in the byte in
    decimal, with zero representing the least-significant bit.  'offset' must be
-   less than 'length', and 'position' must be less than eight.  The end of the
-   list is indicated by the end of the input file.  Any blank character can be
-   used to separate the values.  New line characters can be used as shown above
-   for readability, but are not required.
+   less than 'length', and 'position' must be less than eight.  Multiple
+   bit locations for the same byte offset can be provided on the same line:
+
+     offset_k position_a position_b position_c
+
+   The end of the list is indicated by the end of the input file.  Any blank
+   character can be used to separate the values.  Blank lines and any
+   characters after a hash (#) character are ignored.
 
    Some examples for <dimension reflect polynomial> for common CRCs are:
 
@@ -117,8 +124,7 @@
    An example of a complete input file, using CRC-4/ITU (a four-bit CRC) is:
 
      4 1 c
-     f
-     89
+     f 89
      37 0
      41 0
      45 0
@@ -439,9 +445,9 @@ local word_t crc_zeros(word_t crc, range_t len, model_t model)
     return crc;
 }
 
-/* Compute the crc of a sparse sequence with 1's at loci[0..num-1] (assumed to
+/* Compute the crc of a sparse sequence with 1's at loci[0..locs-1] (assumed to
    be sorted by offset in ascending order). */
-local word_t crc_sparse(const struct locus *loci, int locs, range_t len,
+local word_t crc_sparse(const struct locus *loci, int locs, range_t num,
                         model_t model)
 {
     int k;              /* index of loci */
@@ -475,7 +481,7 @@ local word_t crc_sparse(const struct locus *loci, int locs, range_t len,
     }
 
     /* take care of leftover zeros to run through, return result */
-    return crc_zeros(crc, len - at, model);
+    return crc_zeros(crc, num - at, model);
 }
 
 /* Solve M x = c for x, return 0 on success, 1 on failure (singular).  This
@@ -558,7 +564,7 @@ local int gf2_matrix_solve(word_t *x, const word_t *M, word_t c, int rows,
    locations to invert, or -1 if there is no solution.  The locations to invert
    are moved to the beginning of loci.  If there is no solution, loci is
    not modified. */
-local int crc_solve(struct locus *loci, int locs, range_t len, word_t want,
+local int crc_solve(struct locus *loci, int locs, range_t num, word_t want,
                     model_t model)
 {
     int n, k, i;
@@ -569,10 +575,10 @@ local int crc_solve(struct locus *loci, int locs, range_t len, word_t want,
     assert(locs >= model.dim);
     assert(want <= ONES(model.dim));
 
-    /* for each bit position, calculate the crc of the sequence of len zero
+    /* for each bit position, calculate the crc of the sequence of num zero
        bytes except for a single 1 bit at that bit position */
     for (k = 0; k < locs; k++)
-        mat[k] = crc_sparse(loci + k, 1, len, model);
+        mat[k] = crc_sparse(loci + k, 1, num, model);
 
     /* solve mat . sol = want for sol (return if all square subsets of mat are
        singular) */
@@ -617,6 +623,42 @@ local inline int decimal_digits(range_t n)
 
 #ifndef NOMAIN  /* for testing */
 
+/* Return a null-terminated line of input from in, stripping any comments and
+   skipping blank lines.  Also replace any nulls with spaces so the line can be
+   terminated by a null.  A comment starts where the first hash (#) character
+   appears anywhere in the line, and ends at the end of the line.  A returned
+   empty line indicates EOF or error.  *line should be initialized to NULL, and
+   *size to 0.  When done with getinput(), *line should be freed. */
+local inline char *getinput(char **line, size_t *size, FILE *in)
+{
+    ssize_t len;
+    int ch;
+    char *loc;
+
+    do {
+        len = getline(line, size, in);
+        if (len == -1) {
+            if (*size == 0) {
+                *size = 1;
+                *line = alloc(*line, *size);
+            }
+            len = 0;
+            break;
+        }
+        loc = *line;
+        while ((loc = memchr(loc, 0, len - (loc - *line))) != NULL)
+            *loc++ = ' ';
+        loc = memchr(*line, '#', len);
+        if (loc != NULL)
+            len = loc - *line;
+        while (len && ((ch = (*line)[len - 1]) == ' ' || ch == '\t' ||
+                       ch == '\n' || ch == '\r'))
+            len--;
+    } while (len == 0);
+    (*line)[len] = 0;
+    return *line;
+}
+
 /* Read sequence length, bit positions, and desired crc difference from stdin.
    Compute and display the solution, which is a subset of the provided bit
    positions to invert in the sequence. */
@@ -628,14 +670,19 @@ int main(void)
     FILE *in = stdin;           /* input file */
     model_t model;              /* CRC model */
     word_t want;                /* desired crc */
-    range_t len;                /* sequence length */
+    range_t num;                /* number of bytes in sequence */
     struct locus *loci;         /* bit locations */
+    range_t off;                /* offset of bit to potentially flip */
+    int pos;                    /* position of bit to potentially flip */
     int locs;                   /* number of bit locations to look at */
     int flips;                  /* number of bit locations to invert */
-    char *just;                 /* string of spaces for justification */
+    char *line = NULL;          /* input line */
+    size_t size = 0;            /* allocated size of input line */
+    int n;                      /* position from sscanf() */
+    char *rest;                 /* remainder of input line to process */
 
-    /* read and validate the input file */
-    ret = fscanf(in, " %hd %hd %" WORDFMT,   /* crc description */
+    /* read crc description */
+    ret = sscanf(getinput(&line, &size, in), " %hd %hd %" WORDFMT,
                  &model.dim, &model.ref, &model.poly);
     if (ret == 3 && model.dim > WORDBITS)
         fail("CRC too long for crc integer type spoof was compiled with");
@@ -644,44 +691,51 @@ int main(void)
         fail("invalid CRC description");
     if ((model.poly & ((word_t)1 << (model.ref ? model.dim - 1 : 0))) == 0)
         fail("invalid polynomial (you may need to reverse the bits)");
-    ret = fscanf(in, " %" WORDFMT, &want);      /* desired crc difference */
+
+    /* read desired crc difference and number of bytes in the sequence */
+    ret = sscanf(getinput(&line, &size, in), " %" WORDFMT " %" RANGEFMT,
+                 &want, &num);
     if (ret < 1 || want > ONES(model.dim))
         fail("invalid target CRC");
-    ret = fscanf(in, " %" RANGEFMT, &len);      /* length of sequence */
-    if (ret < 1 || len < (range_t)((model.dim + 7) >> 3))
+    if (ret < 2 || num < (range_t)((model.dim + 7) >> 3))
         fail("invalid sequence length (must be at least length of CRC)");
+
+    /* read bit locations */
     k = model.dim << 1;
     loci = alloc(NULL, k * sizeof(struct locus));
     locs = 0;
-    for (;;) {
-        ret = fscanf(in, " %" RANGEFMT " %hd",   /* offset and bit position */
-                     &(loci[locs].off), &(loci[locs].pos));
-        if (ret == EOF || ret == 0)
-            break;
-        if (ret < 2 || loci[locs].off >= len ||
-                loci[locs].pos < 0 || loci[locs].pos > 7)
+    while ((ret = sscanf(getinput(&line, &size, in), " %" RANGEFMT "%n",
+                         &off, &n)) > 0) {
+        if (off >= num)
             fail("invalid bit location specification");
-        locs++;
-        if (locs == k) {
-            k <<= 1;
-            loci = alloc(loci, k * sizeof(struct locus));
+        rest = line + n;
+        while ((ret = sscanf(rest, "%d%n", &pos, &n)) > 0) {
+            rest += n;
+            if (pos < 0 || pos > 7)
+                fail("invalid bit location specification");
+            if (locs == k) {
+                k <<= 1;
+                loci = alloc(loci, k * sizeof(struct locus));
+            }
+            loci[locs].off = off;
+            loci[locs].pos = pos;
+            locs++;
         }
     }
+    free(line);
     if (locs < model.dim)
         fail("need at least n bit locations for an n-bit CRC");
-    if (ret == 0)
-        warn("junk at end of input ignored");
     loci = alloc(loci, locs * sizeof(struct locus));
 
     /* solve for the values of the given bit locations to get want */
-    flips = crc_solve(loci, locs, len, want, model);
+    flips = crc_solve(loci, locs, num, want, model);
     if (flips == -1)
         fail("no solution -- try more or different bit locations");
 
     /* check the crc of a sequence with ones at the given locations -- sort the
        locations by offset first, since crc_sparse() requires that */
     mergesort(loci, flips, sizeof(struct locus), locus_order);
-    crc = crc_sparse(loci, flips, len, model);
+    crc = crc_sparse(loci, flips, num, model);
     if (want != crc)
         fail("internal algorithm error");
 
@@ -691,11 +745,7 @@ int main(void)
         ret = decimal_digits(loci[flips - 1].off);
         if (ret < 6)
             ret = 6;
-        just = alloc(NULL, ret - 5);
-        memset(just, ' ', ret - 6);
-        just[ret - 6] = 0;
-        printf("%soffset bit\n", just);
-        free(just);
+        printf("%*s bit\n", ret, "offset");
         for (k = 0; k < flips; k++)
             printf("%*" RANGEFMT " %d\n", ret, loci[k].off, loci[k].pos);
     }
