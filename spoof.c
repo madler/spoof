@@ -1,5 +1,5 @@
 /* spoof.c -- modify a message to have a desired CRC
-  version 1.5, December 5th, 2014
+  version 1.6, December 7th, 2014
 
   Copyright (C) 2012, 2014 Mark Adler
 
@@ -42,6 +42,7 @@
                        Allow multiple bit locations per offset in input
                        Have crc and length be on same line in input
                        Simplify justification of output header
+   1.6     7 Dec 2014  Fix bug for CRCs less than 8 bits and not reflected
  */
 
 /*
@@ -72,38 +73,40 @@
 
    The first line describes the CRC, where 'dimension' is the number of bits in
    the crc in decimal, 'reflect' is 1 for a reflected crc or 0 for a non-
-   reflected crc, and 'polynomial' is the crc polynomial in hexadecimal. The
+   reflected crc, and 'polynomial' is the crc polynomial in hexadecimal.  The
    polynomial is represented by its low coefficients (i.e. not including the
    coefficent of x^dimension, which is always 1), with the x^0 coefficient
    placed in the least significant bit for a non-reflected CRC, or in the most
-   significant bit (of a dimension-bits word) for a reflected CRC.  Reflection
-   of the CRC is applied on both input and output.  There is no specification
+   significant bit of a dimension-bits word for a reflected CRC.  Reflection of
+   the CRC is applied on both input and output.  There is no specification
    required for pre or post processing of the CRC, since the result of spoof is
    independent of such processing.
 
    On the next line 'crc' is the exclusive-or of the initial and desired CRCs,
-   expressed in hexadecimal. 'length' is the length of the sequence in bytes,
-   expressed in decimal, where each byte is eight bits.  Then there are n bit
-   locations, where n is equal to or greater than dimension.  Each bit location
-   consists of 'offset', which is the distance of the location in bytes from
-   the start of the sequence, in decimal, where zero is the first byte in the
-   sequence, and 'position' which is the location of the bit in the byte in
-   decimal, with zero representing the least-significant bit.  'offset' must be
-   less than 'length', and 'position' must be less than eight.  Multiple
-   bit locations for the same byte offset can be provided on the same line:
+   expressed in hexadecimal.  'length' is the length of the sequence in bytes,
+   expressed in decimal, where each byte is eight bits.
+
+   Then there are n bit locations, where n is equal to or greater than
+   dimension.  Each bit location consists of 'offset', which is the distance of
+   the location in bytes from the start of the sequence, in decimal, where zero
+   is the first byte in the sequence, and 'position' which is the location of
+   the bit in the byte in decimal, with zero representing the least-significant
+   bit.  'offset' must be less than 'length', and 'position' must be less than
+   eight.  Multiple bit locations for the same byte offset can be provided on
+   the same line:
 
      offset_k position_a position_b position_c
 
-   The end of the list is indicated by the end of the input file.  Any blank
-   character can be used to separate the values.  Blank lines and any
-   characters after a hash (#) character are ignored.
+   The end of the list of bit locations is indicated by the end of the input
+   file.  Any blank character can be used to separate the values.  Blank lines
+   and any characters after a hash (#) character are ignored.
 
    Some examples for <dimension reflect polynomial> for common CRCs are:
 
-     32 1 edb88320          ZIP/GZIP/PNG
-     32 0 04c11db7          BZIP2/POSIX/MPEG2 (same polynomial as ZIP)
-     16 1 8408              X.25/KERMIT/HDLC/CCITT
-     64 1 c96c5795d7870f42  XZ
+     32 1 edb88320          # ZIP/GZIP/PNG
+     32 0 04c11db7          # BZIP2/POSIX/MPEG2 (same polynomial as ZIP)
+     16 1 8408              # X.25/KERMIT/HDLC/CCITT
+     64 1 c96c5795d7870f42  # XZ
 
    If the sequence of message bits is not a multiple of eight, prepend the
    sequence with zero bits until it is, and don't specify any locations in the
@@ -294,39 +297,47 @@ struct locus {
 /* Run the low eight bits in val through a crc using model. */
 local inline word_t crc_byte(word_t crc, unsigned val, model_t model)
 {
+    word_t poly = model.poly;
+
     if (model.ref) {
         crc ^= val & 0xff;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
-        crc = crc & 1 ? (crc >> 1) ^ model.poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+        crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
+    }
+    else if (model.dim < 8) {
+        poly <<= 8 - model.dim;
+        crc <<= 8 - model.dim;
+        crc ^= val;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
+        crc >>= 8 - model.dim;
+        crc &= ONES(model.dim);
     }
     else {
         word_t mask;
 
-        if (model.dim < 8) {
-            mask = 0x80;
-            crc <<= 8 - model.dim;
-            crc ^= val;
-        }
-        else {
-            mask = (word_t)1 << (model.dim - 1);
-            crc ^= (word_t)val << (model.dim - 8);
-        }
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        crc = crc & mask ? (crc << 1) ^ model.poly : crc << 1;
-        if (model.dim < 8)
-            crc >>= 8 - model.dim;
+        mask = (word_t)1 << (model.dim - 1);
+        crc ^= (word_t)val << (model.dim - 8);
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
+        crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
         crc &= ONES(model.dim);
     }
     return crc;
@@ -447,7 +458,7 @@ local word_t crc_zeros(word_t crc, range_t len, model_t model)
 
 /* Compute the crc of a sparse sequence with 1's at loci[0..locs-1] (assumed to
    be sorted by offset in ascending order). */
-local word_t crc_sparse(const struct locus *loci, int locs, range_t num,
+local word_t crc_sparse(const struct locus *loci, int locs, range_t len,
                         model_t model)
 {
     int k;              /* index of loci */
@@ -481,7 +492,7 @@ local word_t crc_sparse(const struct locus *loci, int locs, range_t num,
     }
 
     /* take care of leftover zeros to run through, return result */
-    return crc_zeros(crc, num - at, model);
+    return crc_zeros(crc, len - at, model);
 }
 
 /* Solve M x = c for x, return 0 on success, 1 on failure (singular).  This
@@ -564,7 +575,7 @@ local int gf2_matrix_solve(word_t *x, const word_t *M, word_t c, int rows,
    locations to invert, or -1 if there is no solution.  The locations to invert
    are moved to the beginning of loci.  If there is no solution, loci is
    not modified. */
-local int crc_solve(struct locus *loci, int locs, range_t num, word_t want,
+local int crc_solve(struct locus *loci, int locs, range_t len, word_t want,
                     model_t model)
 {
     int n, k, i;
@@ -575,10 +586,10 @@ local int crc_solve(struct locus *loci, int locs, range_t num, word_t want,
     assert(locs >= model.dim);
     assert(want <= ONES(model.dim));
 
-    /* for each bit position, calculate the crc of the sequence of num zero
+    /* for each bit position, calculate the crc of the sequence of len zero
        bytes except for a single 1 bit at that bit position */
     for (k = 0; k < locs; k++)
-        mat[k] = crc_sparse(loci + k, 1, num, model);
+        mat[k] = crc_sparse(loci + k, 1, len, model);
 
     /* solve mat . sol = want for sol (return if all square subsets of mat are
        singular) */
@@ -670,7 +681,7 @@ int main(void)
     FILE *in = stdin;           /* input file */
     model_t model;              /* CRC model */
     word_t want;                /* desired crc */
-    range_t num;                /* number of bytes in sequence */
+    range_t len;                /* length of sequence in bytes */
     struct locus *loci;         /* bit locations */
     range_t off;                /* offset of bit to potentially flip */
     int pos;                    /* position of bit to potentially flip */
@@ -694,10 +705,10 @@ int main(void)
 
     /* read desired crc difference and number of bytes in the sequence */
     ret = sscanf(getinput(&line, &size, in), " %" WORDFMT " %" RANGEFMT,
-                 &want, &num);
+                 &want, &len);
     if (ret < 1 || want > ONES(model.dim))
         fail("invalid target CRC");
-    if (ret < 2 || num < (range_t)((model.dim + 7) >> 3))
+    if (ret < 2 || len < (range_t)((model.dim + 7) >> 3))
         fail("invalid sequence length (must be at least length of CRC)");
 
     /* read bit locations */
@@ -706,13 +717,13 @@ int main(void)
     locs = 0;
     while ((ret = sscanf(getinput(&line, &size, in), " %" RANGEFMT "%n",
                          &off, &n)) > 0) {
-        if (off >= num)
-            fail("invalid bit location specification");
+        if (off >= len)
+            fail("invalid bit location offset");
         rest = line + n;
         while ((ret = sscanf(rest, "%d%n", &pos, &n)) > 0) {
             rest += n;
             if (pos < 0 || pos > 7)
-                fail("invalid bit location specification");
+                fail("invalid bit position");
             if (locs == k) {
                 k <<= 1;
                 loci = alloc(loci, k * sizeof(struct locus));
@@ -728,14 +739,14 @@ int main(void)
     loci = alloc(loci, locs * sizeof(struct locus));
 
     /* solve for the values of the given bit locations to get want */
-    flips = crc_solve(loci, locs, num, want, model);
+    flips = crc_solve(loci, locs, len, want, model);
     if (flips == -1)
         fail("no solution -- try more or different bit locations");
 
     /* check the crc of a sequence with ones at the given locations -- sort the
        locations by offset first, since crc_sparse() requires that */
     mergesort(loci, flips, sizeof(struct locus), locus_order);
-    crc = crc_sparse(loci, flips, num, model);
+    crc = crc_sparse(loci, flips, len, model);
     if (want != crc)
         fail("internal algorithm error");
 
