@@ -587,7 +587,7 @@ local int crc_solve(struct locus *loci, int locs, range_t len, word_t want,
     return n;
 }
 
-/* Comparison function for sorting loci, used by mergesort(). */
+/* Comparison function for sorting loci, used by qsort(). */
 local int locus_order(const void *a, const void *b)
 {
     const struct locus *p = a, *q = b;
@@ -723,7 +723,7 @@ int main(void)
 
     /* check the crc of a sequence with ones at the given locations -- sort the
        locations by offset first, since crc_sparse() requires that */
-    mergesort(loci, flips, sizeof(struct locus), locus_order);
+    qsort(loci, flips, sizeof(struct locus), locus_order);
     crc = crc_sparse(loci, flips, len, model);
     if (want != crc)
         fail("internal algorithm error");
