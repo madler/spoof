@@ -1,7 +1,6 @@
 /* spoof.c -- modify a message to have a desired CRC
-  version 1.6, December 7th, 2014
 
-  Copyright (C) 2012, 2014 Mark Adler
+  Copyright (C) 2012, 2014, 2016 Mark Adler
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -22,27 +21,6 @@
   Mark Adler
   madler@alumni.caltech.edu
 
- */
-
-/* Version History:
-   1.0    12 Aug 2012  First version
-   1.1    16 Aug 2012  Allow underconstrained set to avoid singular matrices
-                       Change order of input file items (incompatible with 1.0)
-                       Avoid non-portable shifts equal to word length
-                       Fix bug in crc_byte() for CRCs less than eight bits
-                       Unroll crc_byte() loops
-   1.2    18 Aug 2012  Add comments on probability of singular matrices
-                       Improve efficiency, simplicity of crc_byte()
-                       Use WORDBITS in argument checking
-   1.3    23 Aug 2012  Simplify ONES() macro
-                       Add assertion to assure loci sorted for crc_sparse()
-                       Use _t on all typedef'ed types for consistency
-   1.4    29 Aug 2014  Add parentheses to avoid precedence ambiguities
-   1.5     5 Dec 2014  Allow comments and blank lines in the input file
-                       Allow multiple bit locations per offset in input
-                       Have crc and length be on same line in input
-                       Simplify justification of output header
-   1.6     7 Dec 2014  Fix bug for CRCs less than 8 bits and not reflected
  */
 
 /*
