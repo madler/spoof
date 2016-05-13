@@ -14,7 +14,8 @@ Motivation
 The purpose of _spoof_ is to illustrate the extremely non-cryptographic nature
 of a Cyclic Redundancy Check (CRC) as a signature. Since a CRC is a linear
 operation on the message, it is easy to invert the operation to construct
-messages with any desired CRC.
+messages with any desired CRC. _spoof_ runs in O(log(_n_)) time, where _n_ is
+the length of the message.
 
 Installation
 ------------
