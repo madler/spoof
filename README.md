@@ -20,10 +20,9 @@ the length of the message.
 Installation
 ------------
 
-Simply compile and link with a standard C compiler and library. ("standard"
-here is defined as C99 with POSIX functionality. Alas, this excludes Visual C.)
-spoof.c is a command line program that takes input from stdin and produces
-output on stdout.
+Simply compile and link spoof.c and fline.c with a standard C compiler and
+library. "standard" here is defined as C99. spoof.c is a command line program
+that takes input from stdin and produces output on stdout.
 
 Tests
 -----

@@ -221,6 +221,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include "fline.h"
 
 #define local static
 
@@ -612,40 +613,35 @@ local inline int decimal_digits(range_t n)
 
 #ifndef NOMAIN  /* for testing */
 
-/* Return a null-terminated line of input from in, stripping any comments and
-   skipping blank lines.  Also replace any nulls with spaces so the line can be
-   terminated by a null.  A comment starts where the first hash (#) character
-   appears anywhere in the line, and ends at the end of the line.  A returned
-   empty line indicates EOF or error.  *line should be initialized to NULL, and
-   *size to 0.  When done with getinput(), *line should be freed. */
-local inline char *getinput(char **line, size_t *size, FILE *in)
+/* Return a null-terminated line of input from state, stripping any comments
+   and skipping blank lines.  Also replace any nulls with spaces so the line
+   can be terminated by a null.  A comment starts where the first hash (#)
+   character appears anywhere in the line, and ends at the end of the line.  A
+   returned empty line indicates EOF or error. */
+local inline char *getinput(fline_t *state)
 {
-    ssize_t len;
+    size_t len;
     int ch;
-    char *loc;
+    char *line, *loc;
 
     do {
-        len = getline(line, size, in);
-        if (len == -1) {
-            if (*size == 0) {
-                *size = 1;
-                *line = alloc(*line, *size);
-            }
-            len = 0;
+        line = fline(state, &len);
+        if (line == NULL)
+            fail("out of memory");
+        if (len == 0)
             break;
-        }
-        loc = *line;
-        while ((loc = memchr(loc, 0, len - (loc - *line))) != NULL)
-            *loc++ = ' ';
-        loc = memchr(*line, '#', len);
+        loc = memchr(line, '#', len);
         if (loc != NULL)
-            len = loc - *line;
-        while (len && ((ch = (*line)[len - 1]) == ' ' || ch == '\t' ||
+            len = loc - line;
+        loc = line;
+        while ((loc = memchr(loc, 0, len - (loc - line))) != NULL)
+            *loc++ = ' ';
+        while (len && ((ch = line[len - 1]) == ' ' || ch == '\t' ||
                        ch == '\n' || ch == '\r'))
             len--;
     } while (len == 0);
-    (*line)[len] = 0;
-    return *line;
+    line[len] = 0;
+    return line;
 }
 
 /* Read sequence length, bit positions, and desired crc difference from stdin.
@@ -657,6 +653,7 @@ int main(void)
     word_t crc;                 /* calculated crc to check solution */
     int ret;                    /* general function return value */
     FILE *in = stdin;           /* input file */
+    fline_t *state;             /* state for fline() */
     model_t model;              /* CRC model */
     word_t want;                /* desired crc */
     range_t len;                /* length of sequence in bytes */
@@ -665,13 +662,16 @@ int main(void)
     int pos;                    /* position of bit to potentially flip */
     int locs;                   /* number of bit locations to look at */
     int flips;                  /* number of bit locations to invert */
-    char *line = NULL;          /* input line */
-    size_t size = 0;            /* allocated size of input line */
+    char *line;                 /* input line */
     int n;                      /* position from sscanf() */
-    char *rest;                 /* remainder of input line to process */
+
+    /* set up input */
+    state = fline_start(in);
+    if (state == NULL)
+        fail("out of memory");
 
     /* read crc description */
-    ret = sscanf(getinput(&line, &size, in), " %hd %hd %" WORDFMT,
+    ret = sscanf(getinput(state), " %hd %hd %" WORDFMT,
                  &model.dim, &model.ref, &model.poly);
     if (ret == 3 && model.dim > WORDBITS)
         fail("CRC too long for crc integer type spoof was compiled with");
@@ -682,7 +682,7 @@ int main(void)
         fail("invalid polynomial (you may need to reverse the bits)");
 
     /* read desired crc difference and number of bytes in the sequence */
-    ret = sscanf(getinput(&line, &size, in), " %" WORDFMT " %" RANGEFMT,
+    ret = sscanf(getinput(state), " %" WORDFMT " %" RANGEFMT,
                  &want, &len);
     if (ret < 1 || want > ONES(model.dim))
         fail("invalid target CRC");
@@ -693,13 +693,13 @@ int main(void)
     k = model.dim << 1;
     loci = alloc(NULL, k * sizeof(struct locus));
     locs = 0;
-    while ((ret = sscanf(getinput(&line, &size, in), " %" RANGEFMT "%n",
+    while ((ret = sscanf(line = getinput(state), " %" RANGEFMT "%n",
                          &off, &n)) > 0) {
         if (off >= len)
             fail("invalid bit location offset");
-        rest = line + n;
-        while ((ret = sscanf(rest, "%d%n", &pos, &n)) > 0) {
-            rest += n;
+        line += n;
+        while ((ret = sscanf(line, "%d%n", &pos, &n)) > 0) {
+            line += n;
             if (pos < 0 || pos > 7)
                 fail("invalid bit position");
             if (locs == k) {
@@ -711,7 +711,7 @@ int main(void)
             locs++;
         }
     }
-    free(line);
+    fline_end(state);
     if (locs < model.dim)
         fail("need at least n bit locations for an n-bit CRC");
     loci = alloc(loci, locs * sizeof(struct locus));
