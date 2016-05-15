@@ -24,8 +24,8 @@ Simply compile and link spoof.c and fline.c with a standard C compiler and
 library. "standard" here is defined as C99. spoof.c is a command line program
 that takes input from stdin and produces output on stdout.
 
-Tests
------
+Test
+----
 
 This input, specifying a 4-bit CRC with polynomial x<sup>4</sup>+x+1 reflected,
 an exclusive-or of the current and desired CRC of 1111, a message length of 89
