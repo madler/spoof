@@ -1,0 +1,22 @@
+#!/usr/bin/ruby -w
+# Get all of the codewords from Koopman's catalog, write to stdout.
+require 'open-uri'
+codes=""
+koop = "https://users.ece.cmu.edu/~koopman/crc/"
+open(koop + "crc32.html").each do |line|
+    # find all linked crcnn.html pages
+    line.scan(/href="(crc\d+\.html)"/i).map(&:first).each do |page|
+        open(koop + page).each do |row|
+            # in each crcnn.html page, look for *_len.txt links
+            row.match(/href="(.*_len\.txt)"/i) {
+                # add each *_len.txt to str (if there -- some are not)
+                begin
+                    codes += open(koop + $1).read.strip + "\n"
+                    STDERR.puts $1
+                rescue
+                end
+            }
+        end
+    end
+end
+puts codes
