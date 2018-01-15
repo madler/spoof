@@ -42,21 +42,20 @@
 
    The input is read from stdin. The format of the input is:
 
-     dimension reflect polynomial
+     degree polynomial reflect
      crc length
      offset_1 position_1
      offset_2 position_2
      ...
      offset_n position_n
 
-   The first line describes the CRC, where 'dimension' is the number of bits in
-   the crc in decimal, 'reflect' is 1 for a reflected crc or 0 for a non-
-   reflected crc, and 'polynomial' is the crc polynomial in hexadecimal. The
+   The first line describes the CRC, where 'degree' is the number of bits in the
+   crc in decimal, 'polynomial' is the crc polynomial in hexadecimal, and
+   'reflect' is 1 for a reflected crc or 0 for a non-reflected crc. The
    polynomial is represented by its low coefficients (i.e. not including the
-   coefficent of x^dimension, which is always 1), with the x^0 coefficient
-   placed in the least significant bit for a non-reflected CRC, or in the most
-   significant bit of a dimension-bits word for a reflected CRC. Reflection of
-   the CRC is applied on both input and output. There is no specification
+   coefficent of x^degree, which is always 1), with the x^0 coefficient placed in
+   the least significant bit (which must be 1). If the CRC is reflected, then
+   reflection is applied on both input and output. There is no specification
    required for pre or post processing of the CRC, since the result of spoof is
    independent of such processing.
 
@@ -64,11 +63,11 @@
    expressed in hexadecimal. 'length' is the length of the sequence in bytes,
    expressed in decimal, where each byte is eight bits.
 
-   Then there are n bit locations, where n is equal to or greater than
-   dimension. Each bit location consists of 'offset', which is the distance of
-   the location in bytes from the start of the sequence, in decimal, where zero
-   is the first byte in the sequence, and 'position' which is the location of
-   the bit in the byte in decimal, with zero representing the least-significant
+   Then there are n bit locations, where n is equal to or greater than degree.
+   Each bit location consists of 'offset', which is the distance of the
+   location in bytes from the start of the sequence, in decimal, where zero is
+   the first byte in the sequence, and 'position' which is the location of the
+   bit in the byte in decimal, with zero representing the least-significant
    bit. 'offset' must be less than 'length', and 'position' must be less than
    eight. Multiple bit locations for the same byte offset can be provided on
    the same line:
@@ -79,12 +78,12 @@
    file. Any blank character can be used to separate the values. Blank lines
    and any characters after a hash (#) character are ignored.
 
-   Some examples for <dimension reflect polynomial> for common CRCs are:
+   Some examples for <degree polynomial reflect> for common CRCs are:
 
-     32 1 edb88320          # ZIP/GZIP/PNG
-     32 0 04c11db7          # BZIP2/POSIX/MPEG2 (same polynomial as ZIP)
-     16 1 8408              # X.25/KERMIT/HDLC/CCITT
-     64 1 c96c5795d7870f42  # XZ
+     32 4c11db7 1           # ZIP/GZIP/PNG
+     32 4c11db7 0           # BZIP2/POSIX/MPEG2
+     16 1021 1              # X.25/KERMIT/HDLC/CCITT
+     64 42f0e1eba9ea3693 1  # XZ
 
    If the sequence of message bits is not a multiple of eight, prepend the
    sequence with zero bits until it is, and don't specify any locations in the
@@ -104,7 +103,7 @@
 
    An example of a complete input file, using CRC-4/ITU (a four-bit CRC) is:
 
-     4 1 c
+     4 3 1
      f 89
      37 0
      41 0
@@ -212,14 +211,15 @@
    the CRC.
 
    As a result, spoof runs in O(log n) time, where n is the length of the
-   sequence being spoofed. The execution time also depends on the dimension of
-   the CRC in order to square matrices. Let d be that dimension. Then spoof
-   runs in O(d**2 log(n)) time.
+   sequence being spoofed. The execution time also depends on the degree of the
+   CRC in order to square matrices. Let d be that degree. Then spoof runs in
+   O(d**2 log(n)) time.
  */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <assert.h>
 #include "fline.h"
 
@@ -244,6 +244,21 @@ local inline void *alloc(void *space, size_t size) {
     return space;
 }
 
+// Reverse the low n bits of x, setting the remaining bits to zero. The result
+// is undefined if n is not in 1..64.
+local uint64_t reverse(uint64_t x, int n) {
+#if defined(__has_builtin) && __has_builtin(__builtin_bitreverse64)
+    return __builtin_bitreverse64(x) >> (64 - n);
+#else
+    x = (((x & 0xaaaaaaaaaaaaaaaa) >> 1) |  ((x & 0x5555555555555555) << 1));
+    x = (((x & 0xcccccccccccccccc) >> 2) |  ((x & 0x3333333333333333) << 2));
+    x = (((x & 0xf0f0f0f0f0f0f0f0) >> 4) |  ((x & 0x0f0f0f0f0f0f0f0f) << 4));
+    x = (((x & 0xff00ff00ff00ff00) >> 8) |  ((x & 0x00ff00ff00ff00ff) << 8));
+    x = (((x & 0xffff0000ffff0000) >> 16) | ((x & 0x0000ffff0000ffff) << 16));
+    return ((x >> 32) | (x << 32)) >> (64 - n);
+#endif
+}
+
 // Types to use for CRC's and sequence lengths and offsets. In general these
 // should be the largest integer types available to maximize the problems that
 // can be solved. word_t could be made a smaller type if speed is paramount and
@@ -258,7 +273,7 @@ typedef unsigned long long range_t; // unsigned type for sequence offsets
 
 // CRC description (with no pre or post processing)
 typedef struct {
-    short dim;          // number of bits in CRC
+    short deg;          // number of bits in CRC
     short ref;          // if true, bit-reflected input and output
     word_t poly;        // polynomial representation (ordered per ref)
 } model_t;
@@ -284,9 +299,9 @@ local inline word_t crc_byte(word_t crc, unsigned val, model_t model) {
         crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
         crc = crc & 1 ? (crc >> 1) ^ poly : crc >> 1;
     }
-    else if (model.dim < 8) {
-        poly <<= 8 - model.dim;
-        crc <<= 8 - model.dim;
+    else if (model.deg < 8) {
+        poly <<= 8 - model.deg;
+        crc <<= 8 - model.deg;
         crc ^= val;
         crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
         crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
@@ -296,14 +311,14 @@ local inline word_t crc_byte(word_t crc, unsigned val, model_t model) {
         crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
         crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
         crc = crc & 0x80 ? (crc << 1) ^ poly : crc << 1;
-        crc >>= 8 - model.dim;
-        crc &= ONES(model.dim);
+        crc >>= 8 - model.deg;
+        crc &= ONES(model.deg);
     }
     else {
         word_t mask;
 
-        mask = (word_t)1 << (model.dim - 1);
-        crc ^= (word_t)val << (model.dim - 8);
+        mask = (word_t)1 << (model.deg - 1);
+        crc ^= (word_t)val << (model.deg - 8);
         crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
         crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
         crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
@@ -312,7 +327,7 @@ local inline word_t crc_byte(word_t crc, unsigned val, model_t model) {
         crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
         crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
         crc = crc & mask ? (crc << 1) ^ poly : crc << 1;
-        crc &= ONES(model.dim);
+        crc &= ONES(model.deg);
     }
     return crc;
 }
@@ -358,7 +373,7 @@ local const word_t *crc_zeros_operator(int k, model_t model) {
     static word_t *power[sizeof(range_t) << 3];
 
     // if requested or required, release and clear the operator table
-    if (k < 0 || model.dim != first.dim || model.ref != first.ref ||
+    if (k < 0 || model.deg != first.deg || model.ref != first.ref ||
                  model.poly != first.poly) {
         while (have)
             free(power[--have]);
@@ -375,36 +390,36 @@ local const word_t *crc_zeros_operator(int k, model_t model) {
 
             // check and set state, allocate space for first two operators
             first = model;
-            power[0] = alloc(NULL, model.dim * sizeof(word_t));
-            power[1] = alloc(NULL, model.dim * sizeof(word_t));
+            power[0] = alloc(NULL, model.deg * sizeof(word_t));
+            power[1] = alloc(NULL, model.deg * sizeof(word_t));
 
             // generate operator for one zero bit using crc polynomial
             if (model.ref) {
                 power[1][0] = model.poly;
-                for (n = 1, row = 1; n < model.dim; n++, row <<= 1)
+                for (n = 1, row = 1; n < model.deg; n++, row <<= 1)
                     power[1][n] = row;
             }
             else {
-                for (n = 0, row = 2; n < model.dim - 1; n++, row <<= 1)
+                for (n = 0, row = 2; n < model.deg - 1; n++, row <<= 1)
                     power[1][n] = row;
                 power[1][n] = model.poly;
             }
 
             // square that until we get the operator for eight zero bits
-            gf2_matrix_square(power[0], power[1], model.dim);
-            gf2_matrix_square(power[1], power[0], model.dim);
-            gf2_matrix_square(power[0], power[1], model.dim);
+            gf2_matrix_square(power[0], power[1], model.deg);
+            gf2_matrix_square(power[1], power[0], model.deg);
+            gf2_matrix_square(power[0], power[1], model.deg);
 
             // since we have already allocated the space for it, compute the
             // operator for two zero bytes (16 zero bits)
-            gf2_matrix_square(power[1], power[0], model.dim);
+            gf2_matrix_square(power[1], power[0], model.deg);
             have = 2;
             continue;
         }
 
         // square the highest operator so far and put in allocated space
-        power[have] = alloc(NULL, model.dim * sizeof(word_t));
-        gf2_matrix_square(power[have], power[have - 1], model.dim);
+        power[have] = alloc(NULL, model.deg * sizeof(word_t));
+        gf2_matrix_square(power[have], power[have - 1], model.deg);
         have++;
     }
 
@@ -550,8 +565,8 @@ local int crc_solve(struct locus *loci, int locs, range_t len, word_t want,
     word_t mat[locs];
 
     // protect against improper input that could cause array overruns
-    assert(locs >= model.dim);
-    assert(want <= ONES(model.dim));
+    assert(locs >= model.deg);
+    assert(want <= ONES(model.deg));
 
     // for each bit position, calculate the crc of the sequence of len zero
     // bytes except for a single 1 bit at that bit position
@@ -560,7 +575,7 @@ local int crc_solve(struct locus *loci, int locs, range_t len, word_t want,
 
     // solve mat . sol = want for sol (return if all square subsets of mat are
     // singular)
-    k = gf2_matrix_solve(sol, mat, want, model.dim, locs);
+    k = gf2_matrix_solve(sol, mat, want, model.deg, locs);
     if (k)
         return -1;
 
@@ -655,26 +670,26 @@ int main(void) {
         fail("out of memory");
 
     // read crc description
-    ret = sscanf(getinput(state), " %hd %hd %" WORDFMT,
-                 &model.dim, &model.ref, &model.poly);
-    if (ret == 3 && model.dim > WORDBITS)
+    ret = sscanf(getinput(state), " %hd %" WORDFMT " %hd",
+                 &model.deg, &model.poly, &model.ref);
+    if (ret == 3 && model.deg > WORDBITS)
         fail("CRC too long for crc integer type spoof was compiled with");
-    if (ret < 3 || model.dim < 1 || model.ref < 0 || model.ref > 1 ||
-                   model.poly > ONES(model.dim))
+    if (ret < 3 || model.deg < 1 || model.ref < 0 || model.ref > 1 ||
+                   model.poly > ONES(model.deg) || (model.poly & 1) == 0)
         fail("invalid CRC description");
-    if ((model.poly & ((word_t)1 << (model.ref ? model.dim - 1 : 0))) == 0)
-        fail("invalid polynomial (you may need to reverse the bits)");
+    if (model.ref)
+        model.poly = reverse(model.poly, model.deg);
 
     // read desired crc difference and number of bytes in the sequence
     ret = sscanf(getinput(state), " %" WORDFMT " %" RANGEFMT,
                  &want, &len);
-    if (ret < 1 || want > ONES(model.dim))
+    if (ret < 1 || want > ONES(model.deg))
         fail("invalid target CRC");
-    if (ret < 2 || len < (range_t)((model.dim + 7) >> 3))
+    if (ret < 2 || len < (range_t)((model.deg + 7) >> 3))
         fail("invalid sequence length (must be at least length of CRC)");
 
     // read bit locations
-    k = model.dim << 1;
+    k = model.deg << 1;
     loci = alloc(NULL, k * sizeof(struct locus));
     locs = 0;
     while ((ret = sscanf(line = getinput(state), " %" RANGEFMT "%n",
@@ -696,7 +711,7 @@ int main(void) {
         }
     }
     fline_end(state);
-    if (locs < model.dim)
+    if (locs < model.deg)
         fail("need at least n bit locations for an n-bit CRC");
     loci = alloc(loci, locs * sizeof(struct locus));
 

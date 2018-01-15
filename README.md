@@ -44,7 +44,7 @@ reflected, an exclusive-or of the current and desired CRC of 1111, a message
 length of 89 (decimal) bytes, and four candidate bit locations to change in
 byte offset and bit number:
 
-    4 1 c
+    4 3 1
     f 89
     37 0
     41 0
@@ -62,8 +62,8 @@ This ruse command:
     ./ruse 32 4c11db7 1 file
 
 will modify some number of bits in file, leaving the standard CRC-32 unchanged.
-The script getcodes can be used to pull the latest codewords from Philip Koopman's
-website:
+The script getcodes can be used to pull the latest codewords from Philip
+Koopman's website:
 
     ./getcodes > codewords.txt
 

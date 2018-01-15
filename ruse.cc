@@ -41,12 +41,11 @@
    after. ruse will find the codeword it knows that has the fewest changes that
    it can apply, often as few as three bit flips for files of tens of Kbytes or
    more. It will then apply the codeword starting at a randomly chosen bit
-   location in the file. (Note that unlike spoof, the polynomial is always
-   provided in its non-reflected form.) ruse loads a few thousand codewords
-   from the file codewords.txt, which were scraped from Philip Koopman's web
-   site on CRC codewords. (See the associated getcodes script.) If the provided
-   polynomial has no codewords from that site, or if the codewords.txt file is
-   not found, then the polynomial itself is used as the codeword.
+   location in the file. ruse loads a few thousand codewords from the file
+   codewords.txt, which were scraped from Philip Koopman's web site on CRC
+   codewords. (See the associated getcodes script.) If the provided polynomial
+   has no codewords from that site, or if the codewords.txt file is not found,
+   then the polynomial itself is used as the codeword.
 
    If no arguments are given, then the number of CRCs and codewords loaded from
    codewords.txt is shown.
