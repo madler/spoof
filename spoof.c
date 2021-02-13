@@ -1,6 +1,6 @@
 /* spoof.c -- modify a message to have a desired CRC
 
-  Copyright (C) 2012, 2014, 2016, 2018 Mark Adler
+  Copyright (C) 2012, 2014, 2016, 2018, 2021 Mark Adler
 
   This software is provided 'as-is', without any express or implied warranty.
   In no event will the authors be held liable for any damages arising from the
