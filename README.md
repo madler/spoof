@@ -2,11 +2,14 @@ Synopsis
 --------
 
 _spoof_ will assist you in modifying a message to make the CRC of that message
-equal any desired value. _spoof_ does not need the message itself, but just the
-length of the message, the exclusive-or of the message's current CRC and the
-desired new CRC, and a set of bit locations in the message to potentially
+equal to any desired value. _spoof_ does not need the message itself, but just
+the length of the message, the exclusive-or of the message's current CRC and
+the desired new CRC, and a set of bit locations in the message to potentially
 modify. _spoof_ will then deliver a subset of those locations whose bits should
-be inverted. Then the modified message will have the desired CRC.
+be inverted. The modified message will then have the desired CRC.
+
+_flip_ takes the output from spoof and flips the specified bits in the
+provided file.
 
 _ruse_ will modify a small number of bits in a file such that the specified CRC
 of the file is unchanged. The least number of bits possible will be changed,
@@ -30,11 +33,12 @@ unchanged.
 Installation
 ------------
 
-Simply compile and link spoof.c and fline.c with a standard C99 compiler, and
-compile ruse.cc with a standard C++11 compiler. spoof.c is a command-line
-program that takes input from stdin and produces output on stdout. ruse is a
-command-line program that modifies the named file. The instructions for each
-are near the start of the respective source files.
+Compile and link spoof.c and fline.c with a standard C99 compiler, compile and
+link flip.c also with C99, and compile ruse.cc with a standard C++11 compiler.
+spoof.c is a command-line program that takes input from stdin and produces
+output on stdout. flip takes spoof's output from stdin, and flips bits in the
+named file. ruse is a command-line program that modifies the named file. The
+instructions for each are near the start of the respective source files.
 
 Test
 ----
@@ -56,6 +60,10 @@ will produce this output:
     invert these bits in the sequence:
     offset bit
         41 0
+
+applying the spoof output to a file:
+
+    ./spoof < spoof.input | flip tothisfile.txt
 
 This ruse command:
 
