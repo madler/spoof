@@ -442,6 +442,9 @@ struct catalog {
     // # 0x1e  HD=5  len=1  Example: Len=2 0x1e {0,1} (0x11) (Bits=4)
     // # 0x1e  HD=6  NONE  Example: Len=1 0x1e {0} (0x1e) (Bits=5)
     //
+    // In some newer ones, the repeated CRC has been omitted:
+    // # 0xa2572962  HD=16  NONE  Example: Len=1 {0} (0xa2572962) (Bits=15)
+    //
     // Return true if the str is not in the expected format, or if the data in
     // str is not valid, including if the claimed codeword is not actually a
     // codeword for the provided CRC polynomial.
@@ -459,12 +462,20 @@ struct catalog {
             !regex_match(tok[2], match, regex("HD=\\d+")) ||
             !regex_match(tok[3], match, regex("len=\\d+|NONE")) ||
             tok[4] != "Example:" ||
-            !regex_match(tok[5], match, regex("Len=\\d+")) ||
-            tok[6] != tok[1] ||
-            !regex_match(tok[7], match, regex("\\{\\d+(,\\d+)*\\}")) ||
-            !regex_match(tok[8], match, regex("\\(0x[0-9a-fA-F]+\\)")) ||
-            !regex_match(tok[9], match, regex("\\(Bits=\\d+\\)")) ||
-            tok[10] != "")
+            !regex_match(tok[5], match, regex("Len=\\d+")))
+            return 1;
+        if (tok[6] == tok[1]) {
+            // skip repeated polynomial if present
+            tok[6] = tok[7];
+            tok[7] = tok[8];
+            tok[8] = tok[9];
+            tok[9] = tok[10];
+            tok[10] = "";
+        }
+        if (!regex_match(tok[6], match, regex("\\{\\d+(,\\d+)*\\}")) ||
+            !regex_match(tok[7], match, regex("\\(0x[0-9a-fA-F]+\\)")) ||
+            !regex_match(tok[8], match, regex("\\(Bits=\\d+\\)")) ||
+            tok[9] != "" || tok[10] != "")
             return 1;
 
         try {
@@ -473,16 +484,16 @@ struct catalog {
             if (k == 0)
                 return 1;
             auto len = stoint<uintmax_t>(tok[5].substr(4)); // dataword length
-            auto res = stoint<word_t>(tok[8].substr(1), 0, 0);  // residual CRC
-            auto bits = stoint<int>(tok[9].substr(6));      // number of ones
+            auto res = stoint<word_t>(tok[7].substr(1), 0, 0);  // residual CRC
+            auto bits = stoint<int>(tok[8].substr(6));      // number of ones
             vector<uintmax_t> ones;
             ones.reserve(bits);
             size_t pos = 0;
             for (;;) {
-                tok[7] = tok[7].substr(pos + 1);
-                if (tok[7].size() == 0)
+                tok[6] = tok[6].substr(pos + 1);
+                if (tok[6].size() == 0)
                     break;
-                ones.push_back(stoint<uintmax_t>(tok[7], &pos));    // offset
+                ones.push_back(stoint<uintmax_t>(tok[6], &pos));    // offset
             }
 
             // verify the weight
