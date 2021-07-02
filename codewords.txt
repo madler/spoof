@@ -1215,6 +1215,16 @@
 # 0x77bf  HD=14  len=1  Example: Len=2 0x77bf {0} (0x4c60) (Bits=6)
 # 0x77bf  HD=15  NONE  Example: Len=1 0x77bf {0} (0x77bf) (Bits=14)
 0x77bf {16368,16368,39,39,1,1,1,1,1,1,1,1}
+# 0x67a5  HD=3  len=16368  Example: Len=16369 0x67a5 {0} (0x4000) (Bits=2)
+# 0x67a5  HD=4  len=16368  Example: Len=16369 0x67a5 {0} (0x4000) (Bits=2)
+# 0x67a5  HD=5  len=24  Example: Len=25 0x67a5 {0,2,6} (0x4000) (Bits=4)
+# 0x67a5  HD=6  len=24  Example: Len=25 0x67a5 {0,2,6} (0x4000) (Bits=4)
+# 0x67a5  HD=7  len=11  Example: Len=12 0x67a5 {0,3,6,9} (0x6000) (Bits=6)
+# 0x67a5  HD=8  len=11  Example: Len=12 0x67a5 {0,3,6,9} (0x6000) (Bits=6)
+# 0x67a5  HD=9  len=3  Example: Len=4 0x67a5 {0,3} (0x416a) (Bits=8)
+# 0x67a5  HD=10  len=3  Example: Len=4 0x67a5 {0,3} (0x416a) (Bits=8)
+# 0x67a5  HD=11  NONE  Example: Len=1 0x67a5 {0} (0x67a5) (Bits=10)
+0x67a5 {16368,16368,24,24,11,11,3,3}
 # 0x630b  HD=3  len=16368  Example: Len=16369 0x630b {0} (0x4000) (Bits=2)
 # 0x630b  HD=4  len=16368  Example: Len=16369 0x630b {0} (0x4000) (Bits=2)
 # 0x630b  HD=5  len=13  Example: Len=14 0x630b {0,7,13} (0x4000) (Bits=4)
