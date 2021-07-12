@@ -53,7 +53,7 @@
    crc in decimal, 'polynomial' is the crc polynomial in hexadecimal, and
    'reflect' is 1 for a reflected crc or 0 for a non-reflected crc. The
    polynomial is represented by its low coefficients (i.e. not including the
-   coefficent of x^degree, which is always 1), with the x^0 coefficient placed in
+   coefficient of x^degree, which is always 1), with the x^0 coefficient placed in
    the least significant bit (which must be 1). If the CRC is reflected, then
    reflection is applied on both input and output. There is no specification
    required for pre or post processing of the CRC, since the result of spoof is
@@ -194,7 +194,7 @@
    can be seen as simply exclusive-or'ing a single constant with the CRC, where
    that constant depends only on the length of the sequence the CRC is over.
    spoof does its calculations using only a "pure" CRC with no pre- or
-   post-processing. This is permitted since spoof is provided the exlusive-or
+   post-processing. This is permitted since spoof is provided the exclusive-or
    of two sequences of the same length, which cancels exclusive-or'ed constant,
    leaving the pure CRC of the two sequences exclusive-or'ed.
 
@@ -204,7 +204,7 @@
    represent the application of a series of zeros to the CRC. We construct a
    matrix representing the effect on the CRC of running a single zero bit
    through the CRC. Call it Z. Then we successively square that matrix to get
-   operators for more zeros. Z**8 represents running a byte of zeros thruogh
+   operators for more zeros. Z**8 represents running a byte of zeros through
    the CRC (where ** means to the power of). Z**16 is two bytes. Z**32 is four
    bytes. And so on. Then we simply decompose the length into a sum of powers
    of two, and apply the corresponding operators for those numbers of zeros to
@@ -480,7 +480,7 @@ local word_t crc_sparse(const struct locus *loci, int locs, range_t len,
 }
 
 // Solve M x = c for x, return 0 on success, 1 on failure (singular). This
-// works for rectangluar M as well (cols > rows), where a subset of the x
+// works for rectangular M as well (cols > rows), where a subset of the x
 // values are selected that result in a non-singular square M' over that
 // subset. rows is limited to the number of bits in the word_t type. cols is
 // not limited (except by stack space). M is an array of cols words, where each
