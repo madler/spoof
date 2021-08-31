@@ -62,6 +62,25 @@
 #include <cctype>
 #include <cstdint>
 #include <climits>
+
+#ifdef __has_builtin
+#  if __has_builtin(__builtin_popcountll)
+#    define HAS_POP
+#  endif
+#  if __has_builtin(__builtin_clzll)
+#    define HAS_CLZ
+#  endif
+#  if __has_builtin(__builtin_bitreverse64)
+#    define HAS_REV
+#  endif
+#  if __has_builtin(__builtin_mul_overflow)
+#    define HAS_MUL
+#  endif
+#endif
+#if defined(ULLONG_MAX) && (ULLONG_MAX>>32) == 4294967295UL
+#  define HAS_LL
+#endif
+
 using namespace std;
 #define local static
 
@@ -73,8 +92,7 @@ using namespace std;
 // Return the number of one bits in x. The non-builtin version is efficient for
 // sparse ones.
 local int weight(uint64_t x) {
-#if defined(__has_builtin) && __has_builtin(__builtin_popcountll) && \
-    defined(ULLONG_MAX) && (ULLONG_MAX >> 32) == 4294967295UL
+#if defined(HAS_POP) && defined(HAS_LL)
     return __builtin_popcountll(x);
 #else
     int n = 0;
@@ -89,8 +107,7 @@ local int weight(uint64_t x) {
 // Return the bit position of the highest one bit in n (the floor of the log
 // base 2 of n), or -1 if n is zero.
 local int ilog2(uint64_t n) {
-#if defined(__has_builtin) && __has_builtin(__builtin_clzll) && \
-    defined(ULLONG_MAX) && (ULLONG_MAX >> 32) == 4294967295UL
+#if defined(HAS_CLZ) && defined(HAS_LL)
     return n ? 63 - __builtin_clzll(n) : -1;
 #else
     uint64_t m;
@@ -108,7 +125,7 @@ local int ilog2(uint64_t n) {
 // Reverse the low n bits of x, setting the remaining bits to zero. The result
 // is undefined if n is not in 1..64.
 local uint64_t reverse(uint64_t x, int n) {
-#if defined(__has_builtin) && __has_builtin(__builtin_bitreverse64)
+#ifdef HAS_REV
     return __builtin_bitreverse64(x) >> (64 - n);
 #else
     x = (((x & 0xaaaaaaaaaaaaaaaa) >> 1) |  ((x & 0x5555555555555555) << 1));
@@ -311,7 +328,7 @@ struct codewords : public crc_sparse {
 // Multiply a by b, putting the product in *c. If the multiplication overflows,
 // then return true. a, b, and c should not have side effects as they may be
 // evaluated more than once.
-#if __has_builtin(__builtin_mul_overflow)
+#ifdef HAS_MUL
 #  define MUL(a,b,c) __builtin_mul_overflow(a,b,c)
 #else
 #  define MUL(a,b,c) (*(c) = (a) * (b), (b) && *(c) / (b) != (a))

@@ -67,7 +67,8 @@ char *fline_delim(fline_t *state, size_t *len, int delim) {
         // if found or if at end of file, return the line
         if (hit != NULL || state->in == NULL) {
             size_t beg = state->pos;
-            state->pos = hit == NULL ? state->have : (hit - state->buf) + 1;
+            state->pos = hit == NULL ? state->have :
+                                       (size_t)(hit - state->buf) + 1;
             *len = state->pos - beg;
             return state->buf + beg;
         }

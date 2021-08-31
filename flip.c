@@ -35,6 +35,7 @@
    which to flip the bits chosen by spoof.
  */
 
+#define _LARGEFILE_SOURCE
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>

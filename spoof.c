@@ -223,6 +223,12 @@
 #include <assert.h>
 #include "fline.h"
 
+#ifdef __has_builtin
+#  if __has_builtin(__builtin_bitreverse64)
+#    define HAS_REV
+#  endif
+#endif
+
 #define local static
 
 // Issue error message (all error messages go through here).
@@ -247,7 +253,7 @@ local inline void *alloc(void *space, size_t size) {
 // Reverse the low n bits of x, setting the remaining bits to zero. The result
 // is undefined if n is not in 1..64.
 local uint64_t reverse(uint64_t x, int n) {
-#if defined(__has_builtin) && __has_builtin(__builtin_bitreverse64)
+#ifdef HAS_REV
     return __builtin_bitreverse64(x) >> (64 - n);
 #else
     x = (((x & 0xaaaaaaaaaaaaaaaa) >> 1) |  ((x & 0x5555555555555555) << 1));
